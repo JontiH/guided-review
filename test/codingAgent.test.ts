@@ -7,6 +7,8 @@ describe('coding agents', () => {
     expect(codingAgentLaunch({ agent: 'pi' }, 'p')).toEqual({ command: 'pi', args: ['p'] });
     expect(codingAgentLaunch({ agent: 'gemini' }, 'p')).toEqual({ command: 'gemini', args: ['--prompt-interactive', 'p'] });
     expect(codingAgentName({ agent: 'cursor' })).toBe('Cursor CLI');
+    expect(codingAgentLaunch({ agent: 'none' }, 'p')).toBeUndefined();
+    expect(codingAgentName({ agent: 'none' })).toBe('none');
   });
 
   it('splits a custom command by words and quotes, without a shell', () => {

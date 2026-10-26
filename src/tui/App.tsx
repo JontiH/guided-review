@@ -33,7 +33,7 @@ import { useTerminalStatus, type TerminalProgress } from './terminalStatus.js';
 import { sanitizeTerminal } from '../util/sanitize.js';
 import { Hints, KeyBar, type Hint } from './KeyBar.js';
 import { plural } from './plural.js';
-import { codingAgentLaunch, type CodingAgentSetting } from '../codingAgent.js';
+import { codingAgentLaunch, NO_CODING_AGENT, type CodingAgentSetting } from '../codingAgent.js';
 import { AuthorMode } from './author/AuthorMode.js';
 import { ChecksPopup, MergePopup, ReviewersPopup } from './prPopups.js';
 import { mergeReadiness, type Readiness } from '../review/merge.js';
@@ -661,6 +661,7 @@ function Screens(opts: AppOptions & { theme: ThemeControl }) {
       .join('\n\n');
     // A NUL byte from the PR would make spawnSync throw rather than start the agent.
     const agent = codingAgentLaunch(opts.codingAgent, prompt.replaceAll('\0', ''));
+    if (!agent) return;
     await suspendTerminal(() => {
       // spawnSync throws on arguments it can't pass at all; report those like a failed start.
       try {
@@ -1116,7 +1117,7 @@ function Screens(opts: AppOptions & { theme: ThemeControl }) {
           setPhase('submit');
         }}
         openBriefing={() => setPhase('briefing')}
-        openInAgent={(h, c) => void openInAgent(h, c)}
+        openInAgent={opts.codingAgent?.agent === NO_CODING_AGENT ? undefined : (h, c) => void openInAgent(h, c)}
         rebase={newHead && target ? () => void load(target, false, 'review') : undefined}
         onTheme={theme.show}
         quit={requestQuit}

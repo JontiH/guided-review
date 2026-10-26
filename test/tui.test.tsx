@@ -64,6 +64,8 @@ function Harness(props: {
   onDelete?: (d: Draft) => void;
   onTheme?: () => void;
   agent?: { cwd: string };
+  onOpenInAgent?: () => void;
+  noCodingAgent?: boolean;
 }) {
   const { tour } = props;
   const [pos, setPos] = useState({ ci: props.startCi ?? 0, hi: 0 });
@@ -104,7 +106,7 @@ function Harness(props: {
       toggleDelta={() => {}}
       openSubmit={() => {}}
       openBriefing={() => props.onBriefing?.()}
-      openInAgent={() => {}}
+      openInAgent={props.noCodingAgent ? undefined : (props.onOpenInAgent ?? (() => {}))}
       onTheme={props.onTheme}
       quit={() => {}}
     />
@@ -119,6 +121,20 @@ describe('ChapterScreen', () => {
     ui.stdin.write('L');
     await waitFor(() => expect(onTheme).toHaveBeenCalledTimes(1));
     ui.unmount();
+  });
+
+  it('opens the coding agent on o, and says how to choose one when none is set', async () => {
+    const onOpenInAgent = vi.fn();
+    const ui = render(<Harness tour={fixtureTour()} onDraft={() => {}} onState={() => {}} onOpenInAgent={onOpenInAgent} />);
+    await tick();
+    ui.stdin.write('o');
+    await waitFor(() => expect(onOpenInAgent).toHaveBeenCalledTimes(1));
+    ui.unmount();
+    const none = render(<Harness tour={fixtureTour()} onDraft={() => {}} onState={() => {}} noCodingAgent />);
+    await tick();
+    none.stdin.write('o');
+    await waitFor(() => expect(none.lastFrame()).toContain('No coding agent set. Choose one with gr config.'));
+    none.unmount();
   });
 
   it('keeps the keyboard alive when an overlay would have nothing to show', async () => {

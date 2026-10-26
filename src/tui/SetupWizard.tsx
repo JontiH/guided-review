@@ -7,7 +7,7 @@ import { Key, KeyBar } from './KeyBar.js';
 import { pad, truncate, wrap } from './nav.js';
 import { sanitizeTerminal as safe } from '../util/sanitize.js';
 import { detectCodingAgents, detectGitHub, detectProviders, LOOKED_FOR, type GitHubFinding, type ProviderFinding } from '../detect.js';
-import { CODING_AGENTS, CUSTOM_AGENT, customCommandProblem, DEFAULT_CODING_AGENT, PROMPT_PLACEHOLDER, type CodingAgent, type CodingAgentSetting } from '../codingAgent.js';
+import { CODING_AGENTS, CUSTOM_AGENT, customCommandProblem, DEFAULT_CODING_AGENT, NO_CODING_AGENT, PROMPT_PLACEHOLDER, type CodingAgent, type CodingAgentSetting } from '../codingAgent.js';
 import { CHECK_MS, checkModels, type ModelCheck } from '../agent/check.js';
 import { defaultParams, findVariant, KNOWN_MODELS, listModels, LISTS_MODELS, type ModelOption } from '../agent/models.js';
 import { NO_PROVIDER, type GitHubConfig, type UserConfig } from '../config.js';
@@ -456,7 +456,11 @@ function ProviderStep(props: { width: number; height: number; detected?: Detecte
 
 function CodingAgentStep(props: { width: number; height: number; detected?: Detected; selected: CodingAgentSetting; onBack: () => void; onChoose: (setting: CodingAgentSetting) => void }) {
   const selectedRow = useSelected();
-  const rows = [...CODING_AGENTS.map((a) => ({ value: a.value, name: a.name, command: a.command })), { value: CUSTOM_AGENT as CodingAgent, name: 'Custom command', command: undefined }];
+  const rows = [
+    ...CODING_AGENTS.map((a) => ({ value: a.value, name: a.name, command: a.command })),
+    { value: CUSTOM_AGENT as CodingAgent, name: 'Custom command', command: undefined },
+    { value: NO_CODING_AGENT as CodingAgent, name: 'None', command: undefined },
+  ];
   const [moved, setMoved] = useState<number>();
   // Read through a ref, so keys that arrive together (↓ then Enter) each see the last move.
   const movedRef = useRef<number>(undefined);
@@ -511,8 +515,15 @@ function CodingAgentStep(props: { width: number; height: number; detected?: Dete
         about="Press o in a chapter to open this agent in the PR's checkout, with the hunk, your draft comments, and the review threads as its first prompt."
       />
       {rows.map((r, i) => {
-        const found = r.value !== CUSTOM_AGENT && installed?.includes(r.value);
-        const detail = r.value === CUSTOM_AGENT ? 'any command that takes a prompt' : installed ? (found ? `${r.command} is installed` : `${r.command} not found`) : '';
+        const found = r.command !== undefined && installed?.includes(r.value);
+        const detail =
+          r.value === CUSTOM_AGENT
+            ? 'any command that takes a prompt'
+            : r.value === NO_CODING_AGENT
+              ? 'o does nothing until you choose one'
+              : installed
+                ? `${r.command} ${found ? 'is installed' : 'not found'}`
+                : '';
         return (
           <Text key={r.value} {...selectedRow(i === sel)} wrap="truncate">
             {pad(` ${found ? '✓' : ' '} ${r.name}`, nameW + 3)}

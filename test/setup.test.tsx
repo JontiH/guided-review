@@ -112,6 +112,8 @@ describe('setup answers', () => {
     const answers = modelDefaults('codex', current as never);
     expect(buildConfig(current, answers, undefined, undefined).codingAgent).toBe('opencode');
     expect(buildConfig(current, answers, undefined, undefined, { agent: 'cursor' }).codingAgent).toBe('cursor');
+    expect(buildConfig(current, answers, undefined, undefined, { agent: 'none' })).toMatchObject({ codingAgent: 'none' });
+    expect(buildConfig({ ...current, codingAgent: 'none' }, answers, undefined, undefined).codingAgent).toBe('none');
     expect(buildConfig(current, answers, undefined, undefined, { agent: 'custom', command: ' aider --message ' })).toMatchObject({ codingAgent: 'custom', codingAgentCommand: 'aider --message' });
     expect(buildConfig(undefined, answers, undefined, undefined)).not.toHaveProperty('codingAgent');
   });
@@ -798,6 +800,7 @@ describe('setup wizard', () => {
     await waitFor(() => expect(ui.lastFrame()).toContain('Coding agent'));
     expect(ui.lastFrame()).toMatch(/pi\s/);
     ui.stdin.write('G');
+    ui.stdin.write('k');
     ui.stdin.write(ENTER);
     await waitFor(() => expect(ui.lastFrame()).toContain('Runs without a shell'));
     ui.stdin.write(ESC);
@@ -816,6 +819,42 @@ describe('setup wizard', () => {
     const result = onDone.mock.calls[0][0];
     expect(result.kind === 'saved' && result.config).toMatchObject({ codingAgent: 'custom', codingAgentCommand: 'aider --message' });
     ui.unmount();
+  });
+
+  it('saves no coding agent from the last row, and keeps it under the cursor when run again', async () => {
+    const { ui, onDone } = await wizard({ ...codexFound, codingAgents: ['codex'] }, {});
+    ui.stdin.write(ENTER);
+    await waitFor(() => expect(ui.lastFrame()).toContain('Color theme'));
+    ui.stdin.write(ENTER);
+    await waitFor(() => expect(ui.lastFrame()).toContain('Found on this machine'));
+    ui.stdin.write(ENTER);
+    await waitFor(() => expect(ui.lastFrame()).toContain('Coding agent'));
+    expect(ui.lastFrame()).toMatch(/None\s+o does nothing until you choose one/);
+    ui.stdin.write('G');
+    ui.stdin.write(ENTER);
+    await waitFor(() => expect(ui.lastFrame()).toContain('Ready to save'));
+    expect(ui.lastFrame()).toContain('Coding agent (o): none');
+    ui.stdin.write(ENTER);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const result = onDone.mock.calls[0][0];
+    expect(result.kind === 'saved' && result.config.codingAgent).toBe('none');
+    ui.unmount();
+
+    const current = result.kind === 'saved' ? result.config : undefined;
+    const again = await wizard({ ...codexFound, codingAgents: ['codex'] }, {}, current);
+    await waitFor(() => expect(again.ui.lastFrame()).toContain('Coding agent (o): none'));
+    again.ui.stdin.write(ENTER);
+    await waitFor(() => expect(again.ui.lastFrame()).toContain('Color theme'));
+    again.ui.stdin.write(ENTER);
+    await waitFor(() => expect(again.ui.lastFrame()).toContain('Found on this machine'));
+    again.ui.stdin.write(ENTER);
+    await keepAgent(again.ui);
+    await waitFor(() => expect(again.ui.lastFrame()).toContain('Ready to save'));
+    again.ui.stdin.write(ENTER);
+    await waitFor(() => expect(again.onDone).toHaveBeenCalled());
+    const kept = again.onDone.mock.calls[0][0];
+    expect(kept.kind === 'saved' && kept.config.codingAgent).toBe('none');
+    again.ui.unmount();
   });
 
   it('keeps Claude Code under the cursor for a saved config without a coding agent', async () => {

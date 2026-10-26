@@ -109,7 +109,7 @@ export function ChapterScreen(props: {
   toggleDelta: () => void;
   openSubmit: () => void;
   openBriefing: () => void;
-  openInAgent: (h: Hunk | undefined, chapter: Chapter) => void;
+  openInAgent?: (h: Hunk | undefined, chapter: Chapter) => void; // unset with no coding agent
   rebase?: () => void;
   onTheme?: () => void; // L: the color theme picker
   services?: Services;
@@ -403,7 +403,7 @@ export function ChapterScreen(props: {
     order: () => props.toggleOrder(),
     delta: () => props.toggleDelta(),
     rebase: () => props.rebase?.(),
-    openInAgent: () => props.openInAgent(hunk, chapter),
+    openInAgent: () => (props.openInAgent ? props.openInAgent(hunk, chapter) : setFlash('No coding agent set. Choose one with gr config.')),
     submit: () => props.openSubmit(),
     help: () => show('help'),
     checklist: () => {

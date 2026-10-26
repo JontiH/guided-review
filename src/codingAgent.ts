@@ -1,6 +1,6 @@
 // The coding agents `o` can open in a chapter, each started in the terminal gr suspends with
 // the review context as its first prompt. The config's "codingAgent" names one; Claude Code
-// when unset. "custom" runs the config's "codingAgentCommand" instead.
+// when unset. "custom" runs the config's "codingAgentCommand" instead; "none" opens nothing.
 
 export const CODING_AGENTS = [
   { value: 'claude', name: 'Claude Code', command: 'claude', args: (prompt: string) => [prompt] },
@@ -12,8 +12,9 @@ export const CODING_AGENTS = [
 ] as const;
 
 export const CUSTOM_AGENT = 'custom';
+export const NO_CODING_AGENT = 'none';
 
-export type CodingAgent = (typeof CODING_AGENTS)[number]['value'] | typeof CUSTOM_AGENT;
+export type CodingAgent = (typeof CODING_AGENTS)[number]['value'] | typeof CUSTOM_AGENT | typeof NO_CODING_AGENT;
 
 // The agent as the config holds it: a custom one carries its command line.
 export interface CodingAgentSetting {
@@ -23,7 +24,7 @@ export interface CodingAgentSetting {
 
 export const DEFAULT_CODING_AGENT: CodingAgent = 'claude';
 
-export const CODING_AGENT_VALUES: CodingAgent[] = [...CODING_AGENTS.map((a) => a.value), CUSTOM_AGENT];
+export const CODING_AGENT_VALUES: CodingAgent[] = [...CODING_AGENTS.map((a) => a.value), CUSTOM_AGENT, NO_CODING_AGENT];
 
 export const isCodingAgent = (value: unknown): value is CodingAgent => CODING_AGENT_VALUES.includes(value as CodingAgent);
 
@@ -72,12 +73,14 @@ export function customCommandProblem(line: string | undefined): string | undefin
 export function codingAgentName(setting: CodingAgentSetting | undefined): string {
   const agent = setting?.agent ?? DEFAULT_CODING_AGENT;
   if (agent === CUSTOM_AGENT) return `custom command (${setting?.command ?? ''})`;
+  if (agent === NO_CODING_AGENT) return 'none';
   return CODING_AGENTS.find((a) => a.value === agent)!.name;
 }
 
-// The program and arguments that open the agent with the prompt.
-export function codingAgentLaunch(setting: CodingAgentSetting | undefined, prompt: string): { command: string; args: string[] } {
+// The program and arguments that open the agent with the prompt; undefined with no agent.
+export function codingAgentLaunch(setting: CodingAgentSetting | undefined, prompt: string): { command: string; args: string[] } | undefined {
   const agent = setting?.agent ?? DEFAULT_CODING_AGENT;
+  if (agent === NO_CODING_AGENT) return undefined;
   if (agent === CUSTOM_AGENT) {
     const [command, ...rest] = splitCommand(setting?.command ?? '');
     const placed = rest.some((w) => w.includes(PROMPT_PLACEHOLDER));

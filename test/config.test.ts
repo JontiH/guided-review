@@ -277,11 +277,13 @@ describe('user config', () => {
     expect(() => loadCodingAgent()).toThrow(/"codingAgent": "custom" needs a "codingAgentCommand"/);
     fs.writeFileSync(file, '{"codingAgent":"custom","codingAgentCommand":"\\"\\" --message"}\n');
     expect(() => loadCodingAgent()).toThrow(/"codingAgentCommand": the first word must name the program to run/);
+    fs.writeFileSync(file, '{"codingAgent":"none"}\n');
+    expect(loadCodingAgent()).toEqual({ agent: 'none' });
     fs.writeFileSync(file, '{"provider":"openai","codingAgent":"gemini"}\n');
     expect(loadUserConfig().codingAgent).toBe('gemini');
     expect(describeUserConfig(loadUserConfig())).toContain('Coding agent (o): Gemini CLI');
     fs.writeFileSync(file, '{"provider":"openai","codingAgent":"vim"}\n');
-    expect(() => loadCodingAgent()).toThrow(/unknown codingAgent "vim" \(expected claude, codex, cursor, gemini, opencode, pi, custom\)/);
+    expect(() => loadCodingAgent()).toThrow(/unknown codingAgent "vim" \(expected claude, codex, cursor, gemini, opencode, pi, custom, none\)/);
     expect(() => loadUserConfig()).toThrow(/unknown codingAgent "vim"/);
   });
 
