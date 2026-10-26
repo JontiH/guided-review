@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { loadEditorSetting } from '../config.js';
 
 const FALLBACK_EDITOR = 'vi';
 
@@ -29,10 +30,22 @@ export function editorCommand(editor: string): string[] {
   return argv.length ? argv : [FALLBACK_EDITOR];
 }
 
-// Opens file in $VISUAL/$EDITOR and waits for it to exit. Throws if the editor cannot be
+// "editor" in config.json, then $VISUAL, then $EDITOR. An unreadable config is skipped, since
+// gr config --edit opens the editor to fix it.
+export function chosenEditor(): string {
+  let configured: string | undefined;
+  try {
+    configured = loadEditorSetting();
+  } catch {
+    configured = undefined;
+  }
+  return configured || process.env.VISUAL || process.env.EDITOR || FALLBACK_EDITOR;
+}
+
+// Opens file in the chosen editor and waits for it to exit. Throws if the editor cannot be
 // started or exits non-zero.
 export function openInEditor(file: string): void {
-  const editor = process.env.VISUAL || process.env.EDITOR || FALLBACK_EDITOR;
+  const editor = chosenEditor();
   const [command, ...args] = editorCommand(editor);
   const result = spawnSync(command, [...args, file], { stdio: 'inherit' });
   if (result.error) throw result.error;

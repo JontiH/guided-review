@@ -327,6 +327,7 @@ export function buildConfig(current: UserConfig | undefined, model: ModelAnswers
   const agent = codingAgent ?? (current?.codingAgent && { agent: current.codingAgent, command: current.codingAgentCommand });
   if (agent) config.codingAgent = agent.agent;
   if (agent?.agent === CUSTOM_AGENT) config.codingAgentCommand = agent.command?.trim();
+  if (current?.editor) config.editor = current.editor;
   if (github) config.github = github;
   return config;
 }

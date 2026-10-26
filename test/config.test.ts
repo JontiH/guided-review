@@ -26,9 +26,12 @@ import {
 } from '../src/config.js';
 import { configForRole, resolveApiKey, validateRouting } from '../src/agent/types.js';
 import { describeUserConfig } from '../src/setup.js';
+import { chosenEditor } from '../src/util/editor.js';
 
 const originalHome = process.env.GR_HOME;
 const originalKey = process.env.GR_TEST_KEY;
+const originalVisual = process.env.VISUAL;
+const originalEditor = process.env.EDITOR;
 const roots: string[] = [];
 
 afterEach(() => {
@@ -36,6 +39,10 @@ afterEach(() => {
   else process.env.GR_HOME = originalHome;
   if (originalKey === undefined) delete process.env.GR_TEST_KEY;
   else process.env.GR_TEST_KEY = originalKey;
+  if (originalVisual === undefined) delete process.env.VISUAL;
+  else process.env.VISUAL = originalVisual;
+  if (originalEditor === undefined) delete process.env.EDITOR;
+  else process.env.EDITOR = originalEditor;
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -302,6 +309,36 @@ describe('user config', () => {
     saveUserConfig(presetUserConfig('openai', { fast: 'a', strong: 'b' }, { apiKey: 'sk-secret' }));
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(loadUserConfig().apiKey).toBe('sk-secret');
+  });
+});
+
+describe('editor', () => {
+  it('prefers "editor" in config.json, then $VISUAL, then $EDITOR, then vi', () => {
+    const file = configFile();
+    process.env.VISUAL = 'emacs';
+    process.env.EDITOR = 'nano';
+    fs.writeFileSync(file, '{"provider":"codex","editor":"code --wait"}\n');
+    expect(chosenEditor()).toBe('code --wait');
+    expect(loadUserConfig().editor).toBe('code --wait');
+    fs.writeFileSync(file, '{"provider":"codex"}\n');
+    expect(chosenEditor()).toBe('emacs');
+    delete process.env.VISUAL;
+    expect(chosenEditor()).toBe('nano');
+    delete process.env.EDITOR;
+    expect(chosenEditor()).toBe('vi');
+  });
+
+  it('falls back to the environment when config.json is missing, broken, or has a bad editor', () => {
+    const file = configFile();
+    process.env.VISUAL = 'emacs';
+    expect(chosenEditor()).toBe('emacs');
+    fs.writeFileSync(file, '{"editor":"code --wait",');
+    expect(chosenEditor()).toBe('emacs');
+    fs.writeFileSync(file, '[]');
+    expect(chosenEditor()).toBe('emacs');
+    fs.writeFileSync(file, '{"provider":"codex","editor":"  "}\n');
+    expect(chosenEditor()).toBe('emacs');
+    expect(() => loadUserConfig()).toThrow(/"editor" must be a command/);
   });
 });
 

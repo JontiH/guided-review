@@ -123,6 +123,7 @@ export type UserConfig = Omit<AgentRouting, 'provider'> & {
   tipsSeen?: string[];
   codingAgent?: CodingAgent;
   codingAgentCommand?: string; // with "codingAgent": "custom"
+  editor?: string;
   github?: GitHubConfig;
 };
 
@@ -365,6 +366,17 @@ export function loadCodingAgent(raw = readUserConfigFile()): CodingAgentSetting 
   return (raw && parseCodingAgent(raw, userConfigPath())) ?? { agent: DEFAULT_CODING_AGENT };
 }
 
+function parseEditor(raw: Record<string, unknown>, where: string): string | undefined {
+  if (raw.editor === undefined) return undefined;
+  if (typeof raw.editor !== 'string' || !raw.editor.trim()) throw new UserConfigError(`${where}: "editor" must be a command, such as "nano" or "code --wait"`);
+  return raw.editor;
+}
+
+// The editor command, readable without a model provider; undefined defers to $VISUAL and $EDITOR.
+export function loadEditorSetting(raw = readUserConfigFile()): string | undefined {
+  return raw ? parseEditor(raw, userConfigPath()) : undefined;
+}
+
 function parseGitHubConfig(raw: Record<string, unknown>, where: string): GitHubConfig | undefined {
   if (raw.github === undefined) return undefined;
   if (!raw.github || typeof raw.github !== 'object' || Array.isArray(raw.github)) throw new UserConfigError(`${where}: "github" must be an object`);
@@ -432,6 +444,8 @@ export function loadUserConfig(raw = readUserConfigFile()): UserConfig {
     out.codingAgent = codingAgent.agent;
     if (codingAgent.command) out.codingAgentCommand = codingAgent.command;
   }
+  const editor = parseEditor(raw, file);
+  if (editor) out.editor = editor;
   const github = parseGitHubConfig(raw, file);
   if (github) out.github = github;
   if (raw.roles !== undefined) {

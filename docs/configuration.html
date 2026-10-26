@@ -107,7 +107,7 @@
               </tbody>
             </table>
           </div>
-          <p><code>gr config --edit</code> opens the file in <code>$VISUAL</code> or <code>$EDITOR</code>, for settings setup doesn&#39;t ask about, such as any model not in its list.</p>
+          <p><code>gr config --edit</code> opens the file in your <a href="#editor">editor</a>, for settings setup doesn&#39;t ask about, such as any model not in its list.</p>
           <h2 id="reviewing-without-ai"><a class="anchor" href="#reviewing-without-ai" aria-hidden="true">#</a>Reviewing without AI</h2>
           <p>
             Choose <strong>No AI model</strong> in setup (<code>&quot;provider&quot;: &quot;none&quot;</code>), or pass <code>--no-agent</code> for one review. Everything works from static analysis
@@ -288,6 +288,13 @@
                 <tr>
                   <td><code>codingAgentCommand</code></td>
                   <td>With <code>custom</code>, the command, such as <code>&quot;aider --message&quot;</code>. The prompt goes last, or where you write <code>{prompt}</code>.</td>
+                </tr>
+                <tr>
+                  <td id="editor"><code>editor</code></td>
+                  <td>
+                    The editor for <code>gr config --edit</code>, <code>gr config --repo</code>, and comments, such as <code>&quot;code --wait&quot;</code>. Unset, gr uses <code>$VISUAL</code>, then
+                    <code>$EDITOR</code>, then <code>vi</code>. A config.json gr can&#39;t read is skipped, so the editor still opens to fix it.
+                  </td>
                 </tr>
                 <tr>
                   <td><code>github</code></td>

@@ -187,9 +187,9 @@ describe('setup answers', () => {
   });
 
   it('keeps the settings setup does not ask about', () => {
-    const current: UserConfig = { ...presetUserConfig('codex', { fast: 'a', strong: 'b' }), chapterOrder: 'risk', hideWhitespace: false, splitDiff: true };
+    const current: UserConfig = { ...presetUserConfig('codex', { fast: 'a', strong: 'b' }), chapterOrder: 'risk', hideWhitespace: false, splitDiff: true, editor: 'code --wait' };
     const config = buildConfig(current, modelDefaults('anthropic', undefined, undefined), 'nord', undefined);
-    expect(config).toMatchObject({ provider: 'anthropic', apiKeyEnv: 'ANTHROPIC_API_KEY', chapterOrder: 'risk', hideWhitespace: false, splitDiff: true, theme: 'nord' });
+    expect(config).toMatchObject({ provider: 'anthropic', apiKeyEnv: 'ANTHROPIC_API_KEY', chapterOrder: 'risk', hideWhitespace: false, splitDiff: true, theme: 'nord', editor: 'code --wait' });
     expect(config.github).toBeUndefined();
     expect(buildConfig(undefined, { ...modelDefaults('anthropic', undefined), keySource: 'store', apiKey: 'sk-1' }, 'terminal', undefined)).toMatchObject({ apiKey: 'sk-1', chapterOrder: 'guide' });
     expect(buildConfig(undefined, modelDefaults('anthropic', undefined, undefined), 'terminal', undefined).theme).toBeUndefined();
