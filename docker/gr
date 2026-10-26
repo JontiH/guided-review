@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Runs gr in a one-off Docker container. Alias it:  alias gr=~/guided-review/docker/gr
+#
+#   gr [args]            inside a git repository, mounts that repository; elsewhere, sees only
+#                        GR_HOME (the PR list, PR links and owner/repo#123 still work)
+#   gr -C <path> [args]  mounts the repository at <path> instead
+#   gr --rebuild         rebuilds the image, after pulling
+set -euo pipefail
+compose_file="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)/compose.yaml"
+
+export GR_HOME="${GR_HOME:-$HOME/.guided-review}"
+export GR_UID="${GR_UID:-$(id -u)}" GR_GID="${GR_GID:-$(id -g)}"
+# Docker creates a missing bind source owned by root, which the container user can't write.
+mkdir -p "$GR_HOME"
+
+if [ "${1:-}" = "--rebuild" ]; then
+  if docker compose version >/dev/null 2>&1; then exec docker compose -f "$compose_file" build; fi
+  exec docker-compose -f "$compose_file" build
+fi
+
+opts=(-e "TERM=${TERM:-xterm-256color}")
+
+repo_dir=""
+if [ "${1:-}" = "-C" ]; then
+  [ -n "${2:-}" ] || { echo "gr (docker): -C needs a path" >&2; exit 1; }
+  repo_dir="$(cd "$2" && pwd)"
+  shift 2
+elif git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  repo_dir="$PWD"
+fi
+
+if [ -n "$repo_dir" ]; then
+  # Mount the whole repository even when given a subdirectory, and in a linked worktree also the
+  # main clone's git directory, which lives outside it.
+  mount_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null || echo "$repo_dir")"
+  opts+=(-v "$mount_root:$mount_root" -w "$repo_dir")
+  git_common="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [ -n "$git_common" ] && [[ "$git_common/" != "$mount_root/"* ]]; then
+    opts+=(-v "$git_common:$git_common")
+  fi
+fi
+
+if [ -z "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null; then
+  GH_TOKEN="$(gh auth token 2>/dev/null || true)"
+fi
+for name in COLORTERM TERM_PROGRAM NO_COLOR GH_TOKEN GITHUB_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY CURSOR_API_KEY CLAUDE_CODE_OAUTH_TOKEN GR_DEBUG_MODEL; do
+  [ -n "${!name:-}" ] && opts+=(-e "$name=${!name}")
+done
+# Editing config.json or a comment in $EDITOR uses an editor inside the container; any other falls
+# back to gr's default, vi.
+for name in VISUAL EDITOR; do
+  case "${!name:-}" in
+    vi | vi\ * | vim | vim\ * | nano | nano\ *) opts+=(-e "$name=${!name}") ;;
+  esac
+done
+[ -t 0 ] || opts+=(-T)
+
+if docker compose version >/dev/null 2>&1; then
+  exec docker compose -f "$compose_file" --progress quiet run --rm "${opts[@]}" gr "$@"
+fi
+exec docker-compose -f "$compose_file" run --rm "${opts[@]}" gr "$@"

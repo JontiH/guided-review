@@ -1,0 +1,23 @@
+# Run through docker/gr rather than `docker compose up`: it sets the variables below, mounts a
+# repository for -C <path>, and attaches your terminal.
+#
+# GR_HOME holds config.json (written by setup on the first run), gr's own clones, tours, and review
+# state. It and any repository go at their host paths, because gr adds git worktrees to a clone and
+# the paths it records there have to resolve on both sides.
+services:
+  gr:
+    build: .
+    image: guided-review
+    init: true
+    stdin_open: true
+    tty: true
+    # localhost in the container is this machine, so setup finds Ollama and LM Studio.
+    network_mode: host
+    user: '${GR_UID:-1000}:${GR_GID:-1000}'
+    working_dir: '${GR_HOME:?run gr through docker/gr, which sets GR_HOME}'
+    environment:
+      GR_HOME: '${GR_HOME}'
+    volumes:
+      - type: bind
+        source: '${GR_HOME}'
+        target: '${GR_HOME}'
