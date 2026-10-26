@@ -21,8 +21,9 @@ import {
 } from './config.js';
 import { DEFAULT_API_URL, restJson } from './github/api.js';
 import { isTheme, TERMINAL_THEME } from './tui/theme.js';
-import { expandHome, resolveGitHubAuth } from './github/auth.js';
-import { configForRole, defaultApiKeyEnv, formatModel, type AgentConfig, type AgentRouting, type Provider } from './agent/types.js';
+import { resolveGitHubAuth } from './github/auth.js';
+import { expandHome } from './paths.js';
+import { configForRole, defaultApiKeyEnv, formatModel, resolveApiKey, type AgentConfig, type AgentRouting, type Provider } from './agent/types.js';
 import type { ProviderFinding } from './detect.js';
 import { codingAgentName, CUSTOM_AGENT, type CodingAgentSetting } from './codingAgent.js';
 
@@ -40,6 +41,7 @@ function checkBaseUrl(value: string): string | undefined {
 
 function describeKey(config: AgentConfig): string {
   if (config.apiKey) return 'saved in config.json';
+  if (config.apiKeyFile) return config.apiKeyField ? `${config.apiKeyFile} (${config.apiKeyField})` : config.apiKeyFile;
   const provider = config.provider ?? 'claude-code';
   if (provider === 'codex') return 'Codex CLI login';
   if (provider === 'bedrock') return 'AWS credentials';
@@ -121,7 +123,7 @@ export const PROVIDER_CHOICES: { value: ProviderChoice; name: string; about: str
   { value: NO_PROVIDER, name: 'No AI model', about: 'Static analysis only: chapters, flags, tests, and diagrams still work. AI briefings, narration, Q&A, and suggestions are off.' },
 ];
 
-export type KeySource = 'none' | 'env' | 'store';
+export type KeySource = 'none' | 'env' | 'file' | 'store';
 
 // What the model step of setup collects. Fields a provider doesn't use are ignored.
 export interface ModelAnswers {
@@ -135,6 +137,8 @@ export interface ModelAnswers {
   toolCalling: boolean;
   keySource: KeySource;
   apiKeyEnv: string;
+  apiKeyFile: string;
+  apiKeyField: string; // blank: the whole file is the key
   apiKey: string;
 }
 
@@ -158,9 +162,9 @@ export function modelDefaults(provider: ProviderChoice, previous: AgentRouting |
   const fastParams = savedFast?.model ? savedFast.modelParams : preset?.fastParams;
   const strongParams = savedStrong?.model ? savedStrong.modelParams : preset?.strongParams;
   const envName = provider === NO_PROVIDER ? undefined : defaultApiKeyEnv(provider);
-  // A key is read from a variable unless the saved config pasted one. A compatible endpoint saved
-  // without a key, or a local server found, needs none.
-  const keySource: KeySource = same?.apiKey ? 'store' : same?.apiKeyEnv ? 'env' : provider === 'openai-compatible' && (same || finding?.baseUrl) ? 'none' : 'env';
+  // A key is read from a variable unless the saved config pasted one or named a file. A compatible
+  // endpoint saved without a key, or a local server found, needs none.
+  const keySource: KeySource = same?.apiKey ? 'store' : same?.apiKeyFile ? 'file' : same?.apiKeyEnv ? 'env' : provider === 'openai-compatible' && (same || finding?.baseUrl) ? 'none' : 'env';
   return {
     provider,
     fast,
@@ -172,6 +176,8 @@ export function modelDefaults(provider: ProviderChoice, previous: AgentRouting |
     toolCalling: same?.toolCalling !== false,
     keySource,
     apiKeyEnv: same?.apiKeyEnv ?? envName ?? '',
+    apiKeyFile: same?.apiKeyFile ?? (provider === NO_PROVIDER ? '' : `~/.guided-review/keys/${provider}`),
+    apiKeyField: same?.apiKeyFile ? (same.apiKeyField ?? '') : '',
     apiKey: same?.apiKey ?? '',
   };
 }
@@ -181,6 +187,15 @@ const ENV_NAME = /^\$?[A-Za-z_][A-Za-z0-9_]*$/;
 // A problem with an environment variable's name as typed (a leading $ is allowed), or undefined.
 function envNameProblem(value: string): string | undefined {
   return ENV_NAME.test(value) ? undefined : 'not a valid variable name';
+}
+
+// A note when the named file is missing or other users can read it.
+function fileNote(value: string, what: string): string[] {
+  const file = expandHome(value.trim());
+  if (!file) return [];
+  if (!fs.existsSync(file)) return [`${value} does not exist yet. Save the ${what} there before running gr.`];
+  if (process.platform !== 'win32' && fs.statSync(file).mode & 0o077) return [`Other users can read ${value}. Consider chmod 600 ${value}.`];
+  return [];
 }
 
 // A note when the named variable isn't set in this shell.
@@ -205,13 +220,29 @@ export function modelProblems(a: ModelAnswers): Partial<Record<keyof ModelAnswer
   if (!a.strong.trim()) problems.strong = 'a model is required';
   const envProblem = takesKey(a.provider) && a.keySource === 'env' && envNameProblem(a.apiKeyEnv);
   if (envProblem) problems.apiKeyEnv = envProblem;
+  if (takesKey(a.provider) && a.keySource === 'file' && !a.apiKeyFile.trim()) problems.apiKeyFile = 'enter the path of the file that holds the key';
   if (takesKey(a.provider) && a.keySource === 'store' && !a.apiKey) problems.apiKey = 'paste your API key';
   return problems;
 }
 
 // Things worth saying that don't stop a save, such as a key variable this shell doesn't have.
 export function modelNotes(a: ModelAnswers, env: NodeJS.ProcessEnv = process.env): string[] {
-  return takesKey(a.provider) && a.keySource === 'env' ? envNote(a.apiKeyEnv, env) : [];
+  if (!takesKey(a.provider)) return [];
+  if (a.keySource === 'env') return envNote(a.apiKeyEnv, env);
+  if (a.keySource === 'file') {
+    const notes = fileNote(a.apiKeyFile, 'key');
+    return notes.length ? notes : keyFieldNote(a);
+  }
+  return [];
+}
+
+// A note when the key field doesn't lead to a key in an existing file. It never shows the value.
+export function keyFieldNote(a: ModelAnswers): string[] {
+  const file = a.apiKeyFile.trim();
+  const field = a.apiKeyField.trim();
+  if (!file || !field || !fs.existsSync(expandHome(file))) return [];
+  const { problem } = resolveApiKey({ apiKeyFile: file, apiKeyField: field });
+  return problem ? [`${problem.charAt(0).toUpperCase()}${problem.slice(1)}.`] : [];
 }
 
 // Whether choosing the provider can skip its details: everything it needs was found.
@@ -251,11 +282,7 @@ export function githubProblems(g: GitHubAnswers): Partial<Record<keyof GitHubAns
 export function githubNotes(g: GitHubAnswers, ghInstalled: boolean, env: NodeJS.ProcessEnv = process.env): string[] {
   if (g.method === 'gh') return ghInstalled ? ['Sign in with `gh auth login` if you have not.'] : ['Install gh from https://cli.github.com and run `gh auth login` before reviewing.'];
   if (g.method === 'env') return envNote(g.tokenEnv, env);
-  const file = expandHome(g.tokenFile.trim());
-  if (!file) return [];
-  if (!fs.existsSync(file)) return [`${g.tokenFile} does not exist yet. Save the token there before running gr.`];
-  if (process.platform !== 'win32' && fs.statSync(file).mode & 0o077) return [`Other users can read ${g.tokenFile}. Consider chmod 600 ${g.tokenFile}.`];
-  return [];
+  return fileNote(g.tokenFile, 'token');
 }
 
 // The config's "github" value; undefined means gh.
@@ -297,6 +324,10 @@ export function buildConfig(current: UserConfig | undefined, model: ModelAnswers
       if (!model.toolCalling) connection.toolCalling = false;
     }
     if (takesKey(model.provider) && model.keySource === 'env') connection.apiKeyEnv = model.apiKeyEnv.replace(/^\$/, '');
+    if (takesKey(model.provider) && model.keySource === 'file') {
+      connection.apiKeyFile = model.apiKeyFile.trim();
+      if (model.apiKeyField.trim()) connection.apiKeyField = model.apiKeyField.trim();
+    }
     if (takesKey(model.provider) && model.keySource === 'store') connection.apiKey = model.apiKey;
     config = presetUserConfig(model.provider, { fast: model.fast.trim(), strong: model.strong.trim(), fastParams: model.fastParams, strongParams: model.strongParams }, connection);
     // Output caps, effort, and fast mode set by hand stay while the provider does; setup doesn't

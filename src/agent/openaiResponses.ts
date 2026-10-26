@@ -50,8 +50,8 @@ export async function runOpenAI<T>(prompt: string, config: ProviderRunConfig, op
   if (!config.model) throw new Error('OpenAI provider requires a model ID');
   const url = new URL((config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/responses');
   assertSecureEndpoint(url);
-  const { key, source } = resolveApiKey(config);
-  if (!key) throw new ModelError(`set ${source} to use the OpenAI provider`);
+  const { key, problem } = resolveApiKey(config);
+  if (!key) throw new ModelError(`the OpenAI provider needs an API key, but ${problem}`);
   // Effort, the answer's schema as a strict response format (so the API guarantees JSON that
   // matches it), and priority processing, which is faster and costs more.
   const options = {

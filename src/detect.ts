@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { defaultApiKeyEnv, type Provider } from './agent/types.js';
+import { defaultApiKeyEnv, resolveApiKey, type AgentConfig, type Provider } from './agent/types.js';
 import { CODING_AGENTS, type CodingAgent } from './codingAgent.js';
 
 // What first-run setup can find on this machine without asking: model providers that are
@@ -30,6 +30,7 @@ export interface DetectDeps {
   fetch?: typeof fetch;
   home?: string;
   signal?: AbortSignal; // stops the probes still running, e.g. when setup closes first
+  saved?: AgentConfig; // the config's model settings, whose key may be in a file or config.json
 }
 
 const PROBE_MS = 4000;
@@ -69,7 +70,11 @@ async function codex(run: Run, signal?: AbortSignal): Promise<ProviderFinding | 
   return { provider: 'codex', detail: line.replace(/^Logged in/i, 'signed in') || 'signed in' };
 }
 
-function keyFinding(provider: Provider, env: NodeJS.ProcessEnv): ProviderFinding | undefined {
+function keyFinding(provider: Provider, env: NodeJS.ProcessEnv, saved?: AgentConfig): ProviderFinding | undefined {
+  if (saved?.provider === provider && (saved.apiKey || saved.apiKeyFile)) {
+    const { key, source } = resolveApiKey(saved);
+    if (key) return { provider, detail: saved.apiKey ? 'key saved in config.json' : `key file ${source}` };
+  }
   const name = defaultApiKeyEnv(provider)!;
   return env[name] ? { provider, detail: `$${name} is set` } : undefined;
 }
@@ -95,7 +100,9 @@ export async function detectProviders(deps: DetectDeps = {}): Promise<ProviderFi
   const fetchFn = deps.fetch ?? fetch;
   const home = deps.home ?? os.homedir();
   const [codexFound, ...servers] = await Promise.all([codex(run, deps.signal), ...LOCAL_SERVERS.map((s) => localServer(fetchFn, s, deps.signal))]);
-  return [keyFinding('anthropic', env), keyFinding('openai', env), keyFinding('cursor', env), codexFound, ...servers, bedrock(env, home), vertex(env)].filter((f): f is ProviderFinding => !!f);
+  return [keyFinding('anthropic', env, deps.saved), keyFinding('openai', env, deps.saved), keyFinding('cursor', env, deps.saved), codexFound, ...servers, bedrock(env, home), vertex(env)].filter(
+    (f): f is ProviderFinding => !!f,
+  );
 }
 
 // What detection looked for, shown on a provider it didn't find so people know what to set.

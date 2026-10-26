@@ -191,6 +191,12 @@ function parseAgentConfig(raw: Record<string, unknown>, where: string): AgentCon
   if (typeof raw.model === 'string') out.model = raw.model;
   if (typeof raw.baseUrl === 'string') out.baseUrl = raw.baseUrl;
   if (typeof raw.apiKey === 'string' && raw.apiKey) out.apiKey = raw.apiKey;
+  if (typeof raw.apiKeyFile === 'string' && raw.apiKeyFile.trim()) out.apiKeyFile = raw.apiKeyFile.trim();
+  if (raw.apiKeyField !== undefined) {
+    if (typeof raw.apiKeyField !== 'string' || !raw.apiKeyField.trim()) throw new UserConfigError(`${where}: "apiKeyField" must be a path such as "anthropic.key"`);
+    if (!out.apiKeyFile) throw new UserConfigError(`${where}: "apiKeyField" needs "apiKeyFile", the JSON file it reads the key from`);
+    out.apiKeyField = raw.apiKeyField.trim();
+  }
   if (typeof raw.apiKeyEnv === 'string' && raw.apiKeyEnv) out.apiKeyEnv = raw.apiKeyEnv.replace(/^\$/, '');
   if (typeof raw.toolCalling === 'boolean') out.toolCalling = raw.toolCalling;
   if (Number.isInteger(raw.maxOutputTokens) && (raw.maxOutputTokens as number) > 0) out.maxOutputTokens = raw.maxOutputTokens as number;
@@ -388,8 +394,8 @@ export function loadGitHubConfig(): GitHubConfig | undefined {
 }
 
 function routingOf(config: UserConfig, provider: Provider | undefined): AgentRouting {
-  const { model, modelParams, baseUrl, apiKey, apiKeyEnv, toolCalling, maxOutputTokens, effort, fastMode, roles } = config;
-  const routing: AgentRouting = { provider, model, modelParams, baseUrl, apiKey, apiKeyEnv, toolCalling, maxOutputTokens, effort, fastMode, roles };
+  const { model, modelParams, baseUrl, apiKey, apiKeyFile, apiKeyField, apiKeyEnv, toolCalling, maxOutputTokens, effort, fastMode, roles } = config;
+  const routing: AgentRouting = { provider, model, modelParams, baseUrl, apiKey, apiKeyFile, apiKeyField, apiKeyEnv, toolCalling, maxOutputTokens, effort, fastMode, roles };
   return Object.fromEntries(Object.entries(routing).filter(([, v]) => v !== undefined));
 }
 

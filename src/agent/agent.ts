@@ -155,7 +155,7 @@ async function runOnce<T>(prompt: string, options: ProviderRunConfig, opts: Mode
 
 async function runClaude<T>(prompt: string, options: ProviderRunConfig, opts: ModelOpts, abortController: AbortController): Promise<ProviderResult<T>> {
   // Without a configured key, the SDK uses the Claude Code login or the ambient environment.
-  const key = (options.provider ?? 'claude-code') === 'claude-code' && (options.apiKey || options.apiKeyEnv) ? resolveApiKey(options).key : undefined;
+  const key = (options.provider ?? 'claude-code') === 'claude-code' && (options.apiKey || options.apiKeyFile || options.apiKeyEnv) ? resolveApiKey(options).key : undefined;
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const q = query({
     prompt,

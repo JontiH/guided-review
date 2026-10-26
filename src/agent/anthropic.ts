@@ -50,8 +50,8 @@ type Reply = { content: Anthropic.ContentBlock[]; stop_reason: Anthropic.StopRea
 export async function runAnthropic<T>(prompt: string, config: ProviderRunConfig, opts: ModelOpts, systemPrompt: string): Promise<ProviderResult<T>> {
   if (!config.model) throw new Error('Anthropic provider requires a model ID');
   if (config.baseUrl) assertSecureEndpoint(new URL(config.baseUrl));
-  const { key, source } = resolveApiKey(config);
-  if (!key) throw new ModelError(`set ${source} to use the Anthropic provider`);
+  const { key, problem } = resolveApiKey(config);
+  if (!key) throw new ModelError(`the Anthropic provider needs an API key, but ${problem}`);
   const { default: AnthropicSDK } = await import('@anthropic-ai/sdk');
   // run() owns retries and backoff.
   const client = new AnthropicSDK({ apiKey: key, maxRetries: 0, ...(config.baseUrl ? { baseURL: config.baseUrl } : {}) });

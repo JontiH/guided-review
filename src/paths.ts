@@ -16,6 +16,10 @@ export function grHome(): string {
   return dir;
 }
 
+export function expandHome(file: string): string {
+  return file === '~' || file.startsWith('~/') ? path.join(os.homedir(), file.slice(1)) : file;
+}
+
 export function repoSlug(repo: string): string {
   return repo.replace('/', '__');
 }

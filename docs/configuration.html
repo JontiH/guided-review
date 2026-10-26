@@ -68,8 +68,8 @@
               <code>Enter</code> picks a found provider with default models; <code>c</code> opens its details.
             </li>
             <li>
-              <strong>Details:</strong> the endpoint for a compatible server, the API key (an environment variable, or pasted into <code>config.json</code>), a model for summaries and narration and
-              one for Q&amp;A, and <a href="#fast-mode-and-priority-processing">fast mode</a> where it&#39;s offered.
+              <strong>Details:</strong> the endpoint for a compatible server, the API key (an environment variable, a file, or pasted into <code>config.json</code>), a model for summaries and
+              narration and one for Q&amp;A, and <a href="#fast-mode-and-priority-processing">fast mode</a> where it&#39;s offered.
             </li>
             <li><strong>Coding agent:</strong> what <code>o</code> opens in a chapter: Claude Code, Codex, the Cursor CLI, Gemini CLI, opencode, pi, or a custom command.</li>
             <li><strong>GitHub access:</strong> only when <code>gh</code> is missing or signed out. See <a href="#github-access">GitHub access</a>.</li>
@@ -204,8 +204,15 @@
                   <td>API base URL for <code>openai-compatible</code> (including <code>/v1</code>) or <code>anthropic</code>. HTTPS, except on localhost.</td>
                 </tr>
                 <tr>
-                  <td><code>apiKeyEnv</code> / <code>apiKey</code></td>
-                  <td>The variable holding the key, or the key itself.</td>
+                  <td><code>apiKeyEnv</code> / <code>apiKeyFile</code> / <code>apiKey</code></td>
+                  <td>
+                    The variable holding the key, a file holding it (<code>~</code> is your home directory), or the key itself. <code>gr</code> reads the file each time it runs, so the key never
+                    appears in <code>config.json</code> or on screen. <code>apiKey</code> wins over <code>apiKeyFile</code>, which wins over <code>apiKeyEnv</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>apiKeyField</code></td>
+                  <td>With <code>apiKeyFile</code>, reads the file as JSON and takes the key at this dot-separated path, such as <code>anthropic.key</code>. Without it, the whole file is the key.</td>
                 </tr>
                 <tr>
                   <td><code>effort</code></td>
@@ -299,6 +306,12 @@
               </tbody>
             </table>
           </div>
+          <p>
+            The Anthropic key from opencode&#39;s <code>auth.json</code>, which holds
+            <code>{ &quot;anthropic&quot;: { &quot;type&quot;: &quot;api&quot;, &quot;key&quot;: &quot;sk-ant-…&quot; } }</code>:
+          </p>
+          <pre><code class="language-json">{ &quot;provider&quot;: &quot;anthropic&quot;, &quot;model&quot;: &quot;claude-opus-5-5&quot;, &quot;apiKeyFile&quot;: &quot;~/.local/share/opencode/auth.json&quot;, &quot;apiKeyField&quot;: &quot;anthropic.key&quot; }
+</code></pre>
           <p>A local compatible server without a key:</p>
           <pre><code class="language-json">{ &quot;provider&quot;: &quot;openai-compatible&quot;, &quot;model&quot;: &quot;llama3&quot;, &quot;baseUrl&quot;: &quot;http://localhost:11434/v1&quot; }
 </code></pre>

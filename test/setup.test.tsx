@@ -1,11 +1,27 @@
 import React from 'react';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
 import { detectCodingAgents, detectGitHub, detectProviders } from '../src/detect.js';
 import { checkModels, distinctModels } from '../src/agent/check.js';
 import { cleanLabel, cursorOption, defaultParams, findVariant, KNOWN_MODELS, listModels, type ModelOption } from '../src/agent/models.js';
 import { configForRole, formatModel, routingIdentity } from '../src/agent/types.js';
-import { buildConfig, githubConfig, githubDefaults, githubProblems, modelDefaults, modelNotes, modelProblems, modelReady, offersFastMode, replacesOverrides, type SetupResult } from '../src/setup.js';
+import {
+  buildConfig,
+  describeUserConfig,
+  githubConfig,
+  githubDefaults,
+  githubProblems,
+  modelDefaults,
+  modelNotes,
+  modelProblems,
+  modelReady,
+  offersFastMode,
+  replacesOverrides,
+  type SetupResult,
+} from '../src/setup.js';
 import { NO_PROVIDER, PRESET_MODELS, presetUserConfig, type UserConfig } from '../src/config.js';
 import { Form, providerRows, SetupWizard, type Detected, type Field } from '../src/tui/SetupWizard.js';
 import { terminalPalette, themeList } from '../src/tui/theme.js';
@@ -17,6 +33,7 @@ vi.mock('@cursor/sdk', () => ({ Cursor: { models: { list: cursorList } } }));
 
 const ENTER = '\r';
 const DOWN = '\u001B[B';
+const UP = '\u001B[A';
 const ESC = '\u001B';
 
 const offline = (async () => {
@@ -33,6 +50,25 @@ describe('provider detection', () => {
     expect(found[0].detail).toBe('$ANTHROPIC_API_KEY is set');
     expect(found[1].detail).toBe('signed in using ChatGPT');
     expect(found[2]).toMatchObject({ baseUrl: 'http://localhost:11434/v1', models: ['qwen3-coder', 'llama4'], detail: 'Ollama is running · 2 models' });
+  });
+
+  it('counts a key the config reads from a file or holds itself, when it gives a key', async () => {
+    const run = async () => ({ ok: false, out: '' });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gr-key-'));
+    try {
+      const file = path.join(dir, 'anthropic');
+      fs.writeFileSync(file, 'sk-ant\n');
+      const fromFile = await detectProviders({ run, env: {}, fetch: offline, home: '/nowhere', saved: { provider: 'anthropic', apiKeyFile: file } });
+      expect(fromFile).toEqual([{ provider: 'anthropic', detail: `key file ${file}` }]);
+      const pasted = await detectProviders({ run, env: {}, fetch: offline, home: '/nowhere', saved: { provider: 'openai', apiKey: 'sk-x' } });
+      expect(pasted).toEqual([{ provider: 'openai', detail: 'key saved in config.json' }]);
+      // A file that gives no key falls back to the variable.
+      const missing = { provider: 'anthropic' as const, apiKeyFile: path.join(dir, 'gone') };
+      expect(await detectProviders({ run, env: {}, fetch: offline, home: '/nowhere', saved: missing })).toEqual([]);
+      expect((await detectProviders({ run, env: { ANTHROPIC_API_KEY: 'sk-ant' }, fetch: offline, home: '/nowhere', saved: missing }))[0].detail).toBe('$ANTHROPIC_API_KEY is set');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('finds nothing when no CLI, key, or server is there', async () => {
@@ -85,6 +121,50 @@ describe('setup answers', () => {
     expect(modelProblems({ ...a, keySource: 'store' }).apiKey).toBe('paste your API key');
     // A remote compatible endpoint reads a variable too; only a local server found needs no key.
     expect(modelDefaults('openai-compatible', undefined).keySource).toBe('env');
+  });
+
+  it('reads the key from a file, and says when the file is missing or readable by others', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gr-key-'));
+    try {
+      const file = path.join(dir, 'key');
+      const a = { ...modelDefaults('anthropic', undefined), keySource: 'file' as const };
+      expect(a.apiKeyFile).toBe('~/.guided-review/keys/anthropic');
+      expect(modelProblems({ ...a, apiKeyFile: '' }).apiKeyFile).toBe('enter the path of the file that holds the key');
+      expect(modelNotes({ ...a, apiKeyFile: file })).toEqual([`${file} does not exist yet. Save the key there before running gr.`]);
+      fs.writeFileSync(file, 'sk', { mode: 0o644 });
+      fs.chmodSync(file, 0o644);
+      if (process.platform !== 'win32') expect(modelNotes({ ...a, apiKeyFile: file })).toEqual([`Other users can read ${file}. Consider chmod 600 ${file}.`]);
+      fs.chmodSync(file, 0o600);
+      expect(modelReady({ ...a, apiKeyFile: file }, {})).toBe(true);
+      const config = buildConfig(undefined, { ...a, apiKeyFile: ` ${file} ` }, undefined, undefined);
+      expect(config).toMatchObject({ provider: 'anthropic', apiKeyFile: file });
+      expect(config).not.toHaveProperty('apiKeyEnv');
+      expect(modelDefaults('anthropic', config as never)).toMatchObject({ keySource: 'file', apiKeyFile: file });
+      expect(describeUserConfig(config)).toContain(`API key: ${file}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads the key from a field of a JSON file, and says when the field gives none', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gr-key-'));
+    try {
+      const file = path.join(dir, 'auth.json');
+      fs.writeFileSync(file, JSON.stringify({ anthropic: { type: 'api', key: 'sk-ant-SECRET' } }), { mode: 0o600 });
+      const a = { ...modelDefaults('anthropic', undefined), keySource: 'file' as const, apiKeyFile: file };
+      expect(a.apiKeyField).toBe('');
+      expect(modelNotes({ ...a, apiKeyField: 'anthropic.key' })).toEqual([]);
+      expect(modelNotes({ ...a, apiKeyField: 'openai.key' })).toEqual([`The key file ${file} has no openai.key.`]);
+      expect(modelReady({ ...a, apiKeyField: 'openai.key' }, {})).toBe(false);
+      const blank = buildConfig(undefined, { ...a, apiKeyField: '  ' }, undefined, undefined);
+      expect(blank).not.toHaveProperty('apiKeyField');
+      const config = buildConfig(undefined, { ...a, apiKeyField: ' anthropic.key ' }, undefined, undefined);
+      expect(config).toMatchObject({ apiKeyFile: file, apiKeyField: 'anthropic.key' });
+      expect(modelDefaults('anthropic', config as never)).toMatchObject({ keySource: 'file', apiKeyFile: file, apiKeyField: 'anthropic.key' });
+      expect(describeUserConfig(config)).toContain(`API key: ${file} (anthropic.key)`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("starts a local server's setup from what detection found", () => {
@@ -449,9 +529,17 @@ describe('setup wizard', () => {
     expect(ui.lastFrame()).toMatch(/Cursor .*recommended/);
     expect(ui.lastFrame()).toContain('Recommended: the fastest way to run gr');
     ui.stdin.write(ENTER);
-    // The key is read from a variable by default; → switches to pasting it.
+    // The key is read from a variable by default; → switches to a file, then to pasting it.
     await waitFor(() => expect(ui.lastFrame()).toContain('◀ read it from an environment variable ▶'));
-    expect(ui.lastFrame()).toContain('←/→ or paste it (saved in config.json');
+    ui.stdin.write('\u001B[C');
+    await waitFor(() => expect(ui.lastFrame()).toContain('◀ read it from a file ▶'));
+    expect(ui.lastFrame()).toContain('~/.guided-review/keys/anthropic');
+    expect(ui.lastFrame()).toMatch(/Key field\s+blank: the whole file/);
+    ui.stdin.write(DOWN);
+    ui.stdin.write(DOWN);
+    await waitFor(() => expect(ui.lastFrame()).toContain('Blank: the whole file. For JSON, a path such as anthropic.key.'));
+    ui.stdin.write(UP);
+    ui.stdin.write(UP);
     ui.stdin.write('\u001B[C');
     await waitFor(() => expect(ui.lastFrame()).toContain('◀ paste it (saved in config.json'));
     ui.stdin.write(DOWN);

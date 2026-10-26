@@ -129,7 +129,9 @@
               read-only tools as the tour, and their prompts mark review comments, descriptions, and commit messages as untrusted data. A drafted reply or commit message is shown as a proposal and
               posts only as part of a send or merge you confirm.
             </li>
-            <li><code>~/.guided-review/config.json</code> is written with owner-only permissions. Prefer <code>apiKeyEnv</code> over storing <code>apiKey</code> in the file.</li>
+            <li>
+              <code>~/.guided-review/config.json</code> is written with owner-only permissions. Prefer <code>apiKeyEnv</code> or <code>apiKeyFile</code> over storing <code>apiKey</code> in the file.
+            </li>
           </ul>
           <p>Model output is still text from a model that has read untrusted input. Treat narration as a reading aid, not a verdict.</p>
           <h2 id="saved-data"><a class="anchor" href="#saved-data" aria-hidden="true">#</a>Saved data</h2>

@@ -151,7 +151,7 @@ describe('Anthropic provider', () => {
   it('reports a missing key and marks rate limits as transient', async () => {
     const cwd = fixture();
     delete process.env.ANTHROPIC_API_KEY;
-    await expect(runAnthropic('Hi', { provider: 'anthropic', model: 'm', cwd }, {}, '')).rejects.toThrow(/set \$ANTHROPIC_API_KEY/);
+    await expect(runAnthropic('Hi', { provider: 'anthropic', model: 'm', cwd }, {}, '')).rejects.toThrow(/needs an API key, but \$ANTHROPIC_API_KEY is not set/);
     process.env.ANTHROPIC_API_KEY = 'test-key';
     vi.stubGlobal(
       'fetch',

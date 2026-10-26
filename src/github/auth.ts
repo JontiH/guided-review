@@ -1,16 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { expandHome } from '../paths.js';
 import { loadGitHubConfig, type GitHubConfig } from '../config.js';
 import { DEFAULT_API_URL, webHost, type TokenAuth } from './api.js';
 
 // GitHub access goes through the gh CLI unless config.json names a personal access token
 // ("github": { "tokenEnv": ... } or { "tokenFile": ... }, plus an optional "apiUrl" for GitHub
 // Enterprise Server); then gr calls the API over HTTPS.
-
-export function expandHome(file: string): string {
-  return file === '~' || file.startsWith('~/') ? path.join(os.homedir(), file.slice(1)) : file;
-}
 
 // The token a GitHub config points at. Throws when it names a variable or file that is unset or
 // empty, rather than quietly falling back to gh.

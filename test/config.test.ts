@@ -74,6 +74,28 @@ describe('user config', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe(custom);
   });
 
+  it('loads apiKeyFile at the top level and per role', () => {
+    const file = configFile();
+    fs.writeFileSync(file, '{"provider":"openai","model":"m","apiKeyFile":" ~/keys/openai ","roles":{"qa":{"provider":"anthropic","model":"q","apiKeyFile":"/k/anthropic"}}}\n');
+    const config = loadUserConfig();
+    expect(config).toMatchObject({ apiKeyFile: '~/keys/openai', roles: { qa: { apiKeyFile: '/k/anthropic' } } });
+    expect(agentRouting(config)).toMatchObject({ apiKeyFile: '~/keys/openai' });
+  });
+
+  it('loads apiKeyField with its apiKeyFile, and rejects it without one', () => {
+    const file = configFile();
+    fs.writeFileSync(file, '{"provider":"openai","model":"m","apiKeyFile":"~/auth.json","apiKeyField":" openai.key ","roles":{"qa":{"apiKeyFile":"/k","apiKeyField":"a.b"}}}\n');
+    const config = loadUserConfig();
+    expect(config).toMatchObject({ apiKeyField: 'openai.key', roles: { qa: { apiKeyField: 'a.b' } } });
+    expect(agentRouting(config)).toMatchObject({ apiKeyFile: '~/auth.json', apiKeyField: 'openai.key' });
+    fs.writeFileSync(file, '{"provider":"openai","model":"m","apiKeyField":"openai.key"}\n');
+    expect(() => loadUserConfig()).toThrow(/"apiKeyField" needs "apiKeyFile"/);
+    fs.writeFileSync(file, '{"provider":"openai","model":"m","apiKeyFile":"/k","roles":{"qa":{"apiKeyField":"openai.key"}}}\n');
+    expect(() => loadUserConfig()).toThrow(/roles\.qa: "apiKeyField" needs "apiKeyFile"/);
+    fs.writeFileSync(file, '{"provider":"openai","model":"m","apiKeyFile":"/k","apiKeyField":3}\n');
+    expect(() => loadUserConfig()).toThrow(/"apiKeyField" must be a path/);
+  });
+
   it('loads a config that chooses no model, keeping its model settings for later', () => {
     const file = configFile();
     fs.writeFileSync(file, '{"provider":"none","lastProvider":"openai","model":"m","apiKeyEnv":"K","roles":{"qa":{"model":"q"}},"chapterOrder":"risk","theme":"nord"}\n');
@@ -314,6 +336,76 @@ describe('API keys', () => {
     expect(resolveApiKey({ provider: 'anthropic' }).source).toBe('$ANTHROPIC_API_KEY');
     expect(resolveApiKey({ provider: 'claude-code' })).toEqual({});
     expect(resolveApiKey({ provider: 'bedrock' })).toEqual({});
+  });
+
+  it('reads a key file after a saved key and before a variable, and says why it gave none', () => {
+    process.env.GR_TEST_KEY = 'from-env';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gr-key-'));
+    roots.push(dir);
+    const file = path.join(dir, 'key');
+    fs.writeFileSync(file, 'sk-file\n');
+    expect(resolveApiKey({ provider: 'openai', apiKey: 'saved', apiKeyFile: file })).toEqual({ key: 'saved', source: 'config.json' });
+    expect(resolveApiKey({ provider: 'openai', apiKeyFile: file, apiKeyEnv: 'GR_TEST_KEY' })).toEqual({ key: 'sk-file', source: file });
+    const missing = path.join(dir, 'missing');
+    // A named file that gives no key does not fall back to the variable.
+    expect(resolveApiKey({ provider: 'openai', apiKeyFile: missing, apiKeyEnv: 'GR_TEST_KEY' })).toEqual({
+      source: missing,
+      problem: expect.stringMatching(/^the key file .*missing cannot be read/),
+    });
+    fs.writeFileSync(file, '  \n');
+    expect(resolveApiKey({ provider: 'openai', apiKeyFile: file }).problem).toBe(`the key file ${file} is empty`);
+  });
+
+  it('reads a key from a JSON file at a dotted path, without quoting the file in problems', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gr-key-'));
+    roots.push(dir);
+    const file = path.join(dir, 'auth.json');
+    const secret = 'sk-ant-SECRET';
+    fs.writeFileSync(file, JSON.stringify({ anthropic: { type: 'api', key: ` ${secret}\n`, n: 3, blank: ' ' }, openai: { key: 'sk-oa' } }));
+    const read = (apiKeyField: string) => resolveApiKey({ provider: 'anthropic', apiKeyFile: file, apiKeyField });
+    expect(read('anthropic.key')).toEqual({ key: secret, source: `${file} (anthropic.key)` });
+    expect(read('openai.key').key).toBe('sk-oa');
+    expect(read('anthropic.token').problem).toBe(`the key file ${file} has no anthropic.token`);
+    expect(read('anthropic.key.deeper').problem).toBe(`the key file ${file} has no anthropic.key.deeper`);
+    expect(read('anthropic').problem).toBe(`the key file ${file} holds no string at anthropic`);
+    expect(read('anthropic.n').problem).toBe(`the key file ${file} holds no string at anthropic.n`);
+    expect(read('anthropic.blank').problem).toBe(`the key file ${file} has an empty anthropic.blank`);
+    // JSON.parse's own message quotes the text around the error.
+    fs.writeFileSync(file, `${secret} {`);
+    expect(read('anthropic.key').problem).toBe(`the key file ${file} is not valid JSON`);
+    for (const field of ['anthropic.key', 'anthropic', 'anthropic.n', 'x']) {
+      fs.writeFileSync(file, JSON.stringify({ anthropic: { key: secret, n: secret.length } }));
+      expect(read(field).problem ?? '').not.toContain(secret);
+    }
+    fs.writeFileSync(file, `{"anthropic": "${secret}"`);
+    expect(read('anthropic').problem).not.toContain(secret);
+    expect(() => validateRouting({ provider: 'anthropic', model: 'm', apiKeyFile: file, apiKeyField: 'anthropic' })).toThrow(/^anthropic needs an API key, but the key file .* is not valid JSON$/);
+  });
+
+  it('gives a role naming its own key file only its own field', () => {
+    const routing = {
+      provider: 'anthropic' as const,
+      apiKeyFile: '/top',
+      apiKeyField: 'a.key',
+      roles: { qa: { apiKeyFile: '/qa' }, briefing: { model: 'b', apiKeyFile: '/b' }, narration: { model: 'n' } },
+    };
+    expect(configForRole(routing, 'qa')).not.toHaveProperty('apiKeyField');
+    expect(configForRole(routing, 'briefing')).not.toHaveProperty('apiKeyField');
+    expect(configForRole(routing, 'narration')).toMatchObject({ apiKeyFile: '/top', apiKeyField: 'a.key' });
+  });
+
+  it('fails validation when a key file gives no key', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gr-key-'));
+    roots.push(dir);
+    const file = path.join(dir, 'key');
+    const routing = presetUserConfig('anthropic', { fast: 'a', strong: 'b' }, { apiKeyFile: file });
+    expect(() => validateRouting(routing)).toThrow(/anthropic needs an API key, but the key file .* cannot be read/);
+    fs.writeFileSync(file, '');
+    expect(() => validateRouting(routing)).toThrow(/is empty/);
+    // A file named for Cursor must work too, though Cursor could fall back to its own login.
+    expect(() => validateRouting({ provider: 'cursor', model: 'm', apiKeyFile: file })).toThrow(/cursor needs an API key/);
+    fs.writeFileSync(file, 'sk-ant\n');
+    expect(() => validateRouting(routing)).not.toThrow();
   });
 
   it('fails validation when a required key is missing', () => {

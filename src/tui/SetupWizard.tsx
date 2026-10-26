@@ -10,6 +10,7 @@ import { detectCodingAgents, detectGitHub, detectProviders, LOOKED_FOR, type Git
 import { CODING_AGENTS, CUSTOM_AGENT, customCommandProblem, DEFAULT_CODING_AGENT, PROMPT_PLACEHOLDER, type CodingAgent, type CodingAgentSetting } from '../codingAgent.js';
 import { CHECK_MS, checkModels, type ModelCheck } from '../agent/check.js';
 import { defaultParams, findVariant, KNOWN_MODELS, listModels, LISTS_MODELS, type ModelOption } from '../agent/models.js';
+import { resolveApiKey } from '../agent/types.js';
 import { NO_PROVIDER, type GitHubConfig, type UserConfig } from '../config.js';
 import {
   buildConfig,
@@ -19,6 +20,7 @@ import {
   githubDefaults,
   githubNotes,
   githubProblems,
+  keyFieldNote,
   modelDefaults,
   modelNotes,
   modelProblems,
@@ -752,6 +754,7 @@ type ModelList = { for: string; status: 'loading' | 'ok' | 'error'; options?: Mo
 function answerKey(a: ModelAnswers, env: NodeJS.ProcessEnv): string | undefined {
   if (a.keySource === 'store') return a.apiKey || undefined;
   if (a.keySource === 'env') return env[a.apiKeyEnv.replace(/^\$/, '')] || undefined;
+  if (a.keySource === 'file') return a.apiKeyFile.trim() ? resolveApiKey({ apiKeyFile: a.apiKeyFile.trim(), apiKeyField: a.apiKeyField.trim() || undefined }).key : undefined;
   return undefined;
 }
 
@@ -850,10 +853,31 @@ function DetailsStep(props: {
     const options = [
       ...(a.provider === 'openai-compatible' ? [{ value: 'none', label: 'no key (a local server)' }] : []),
       { value: 'env', label: 'read it from an environment variable' },
+      { value: 'file', label: 'read it from a file' },
       { value: 'store', label: 'paste it (saved in config.json, owner-only)' },
     ];
     fields.push({ id: 'keySource', label: 'API key', kind: 'choice', value: a.keySource, options });
     if (a.keySource === 'env') fields.push({ id: 'apiKeyEnv', label: 'Variable', kind: 'text', value: a.apiKeyEnv, problem: problems.apiKeyEnv, hint: modelNotes(a, props.env)[0] });
+    if (a.keySource === 'file') {
+      fields.push({
+        id: 'apiKeyFile',
+        tight: true,
+        label: 'Key file',
+        kind: 'text',
+        value: a.apiKeyFile,
+        placeholder: `~/.guided-review/keys/${a.provider}`,
+        problem: problems.apiKeyFile,
+        hint: modelNotes({ ...a, apiKeyField: '' }, props.env)[0],
+      });
+      fields.push({
+        id: 'apiKeyField',
+        label: 'Key field',
+        kind: 'text',
+        value: a.apiKeyField,
+        placeholder: 'blank: the whole file',
+        hint: keyFieldNote(a)[0] ?? 'Blank: the whole file. For JSON, a path such as anthropic.key.',
+      });
+    }
     if (a.keySource === 'store') fields.push({ id: 'apiKey', label: 'Key', kind: 'secret', value: a.apiKey, problem: problems.apiKey, hint: 'Hidden as you type or paste.' });
   }
   const modelField = (id: 'fast' | 'strong', label: string, role: string): Field =>
@@ -1118,9 +1142,11 @@ function FinishStep(props: {
 export async function runSetupWizard(opts: { firstRun: boolean; current?: UserConfig; problem?: string; file: string }): Promise<SetupResult> {
   // Stopped when setup closes, so probes still running don't keep gr from exiting.
   const probes = new AbortController();
-  const detect = Promise.all([detectProviders({ signal: probes.signal }), detectGitHub({ signal: probes.signal }), detectCodingAgents({ signal: probes.signal })]).then(
-    ([providers, github, codingAgents]) => ({ providers, github, codingAgents }),
-  );
+  const detect = Promise.all([
+    detectProviders({ signal: probes.signal, saved: previousRouting(opts.current) }),
+    detectGitHub({ signal: probes.signal }),
+    detectCodingAgents({ signal: probes.signal }),
+  ]).then(([providers, github, codingAgents]) => ({ providers, github, codingAgents }));
   const themes = await themeList();
   const known = opts.current?.theme && themes.some((t) => t.id === opts.current!.theme) ? opts.current.theme : TERMINAL_THEME;
   const initial = await loadPalette(known).catch(() => terminalPalette);

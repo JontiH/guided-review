@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import { expandHome } from '../paths.js';
+
 export const PROVIDERS = ['claude-code', 'anthropic', 'codex', 'cursor', 'openai', 'openai-compatible', 'bedrock', 'vertex'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
@@ -5,8 +8,11 @@ export interface AgentConfig {
   provider?: Provider;
   model?: string;
   baseUrl?: string;
-  // A key written into config.json wins over apiKeyEnv, the name of the variable holding it.
+  // The key comes from config.json, else the file apiKeyFile names (read at use), else the
+  // variable apiKeyEnv names. With apiKeyField the file is JSON and the key is at that dotted path.
   apiKey?: string;
+  apiKeyFile?: string;
+  apiKeyField?: string;
   apiKeyEnv?: string;
   toolCalling?: boolean;
   // Output token cap per model turn (Anthropic provider).
@@ -70,12 +76,11 @@ export function configForRole(routing: AgentRouting = {}, role: AgentRole): Agen
   }
   // A variant belongs to its model: a role naming another model doesn't take the top-level one's.
   // A role with its own modelParams, even {}, never inherits.
-  if (override?.model && override.model !== defaults.model && !override.modelParams) {
-    const rest: AgentConfig = { ...defaults };
-    delete rest.modelParams;
-    return { ...rest, ...override };
-  }
-  return { ...defaults, ...override };
+  const rest: AgentConfig = { ...defaults };
+  if (override?.model && override.model !== defaults.model && !override.modelParams) delete rest.modelParams;
+  // A field belongs to its file: a role naming its own file doesn't take the top-level field.
+  if (override?.apiKeyFile) delete rest.apiKeyField;
+  return { ...rest, ...override };
 }
 
 export function defaultApiKeyEnv(provider: AgentConfig['provider']): string | undefined {
@@ -86,11 +91,47 @@ export function defaultApiKeyEnv(provider: AgentConfig['provider']): string | un
   return undefined; // Claude Code and Codex use their own logins; Bedrock and Vertex use cloud credentials.
 }
 
-export function resolveApiKey(config: AgentConfig): { key?: string; source?: string } {
+// problem says why there is no key, when a source was named but gave none.
+export function resolveApiKey(config: AgentConfig): { key?: string; source?: string; problem?: string } {
   if (config.apiKey) return { key: config.apiKey, source: 'config.json' };
+  if (config.apiKeyFile) {
+    const source = config.apiKeyFile;
+    let text: string;
+    try {
+      text = fs.readFileSync(expandHome(source), 'utf8');
+    } catch (e) {
+      return { source, problem: `the key file ${source} cannot be read (${(e as Error).message})` };
+    }
+    if (!config.apiKeyField) {
+      const key = text.trim();
+      return key ? { key, source } : { source, problem: `the key file ${source} is empty` };
+    }
+    return keyFromJson(text, source, config.apiKeyField);
+  }
   const name = config.apiKeyEnv ?? defaultApiKeyEnv(config.provider);
   if (!name) return {};
-  return { key: process.env[name] || undefined, source: `$${name}` };
+  const key = process.env[name] || undefined;
+  return key ? { key, source: `$${name}` } : { source: `$${name}`, problem: `$${name} is not set` };
+}
+
+// Messages never quote the file: JSON.parse's own message does, and so would a wrong value.
+function keyFromJson(text: string, file: string, field: string): { key?: string; source: string; problem?: string } {
+  const source = `${file} (${field})`;
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { source, problem: `the key file ${file} is not valid JSON` };
+  }
+  for (const part of field.split('.')) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, part)) {
+      return { source, problem: `the key file ${file} has no ${field}` };
+    }
+    value = (value as Record<string, unknown>)[part];
+  }
+  if (typeof value !== 'string') return { source, problem: `the key file ${file} holds no string at ${field}` };
+  const key = value.trim();
+  return key ? { key, source } : { source, problem: `the key file ${file} has an empty ${field}` };
 }
 
 export function validateRouting(routing: AgentRouting): void {
@@ -102,9 +143,9 @@ export function validateRouting(routing: AgentRouting): void {
     const config = configForRole(routing, role);
     if ((config.provider === 'openai' || config.provider === 'openai-compatible' || config.provider === 'anthropic') && !config.model) throw new Error(`${role} requires a model ID`);
     if (config.provider === 'openai-compatible' && !config.baseUrl) throw new Error(`${role} requires a baseUrl`);
-    // An explicitly named variable must be set; OpenAI and Anthropic always need a key.
-    const { key, source } = resolveApiKey(config);
-    if (!key && (config.apiKeyEnv || config.provider === 'openai' || config.provider === 'anthropic')) throw new Error(`${config.provider} needs an API key, but ${source} is not set`);
+    // An explicitly named file or variable must give a key; OpenAI and Anthropic always need one.
+    const { key, problem } = resolveApiKey(config);
+    if (!key && (config.apiKeyFile || config.apiKeyEnv || config.provider === 'openai' || config.provider === 'anthropic')) throw new Error(`${config.provider} needs an API key, but ${problem}`);
   }
 }
 
